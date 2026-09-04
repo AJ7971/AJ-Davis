@@ -1,24 +1,74 @@
-// Version 1 - Basic localStorage-backed planner
-const STORAGE_KEY = 'studyPlannerData_v1'
+// Version 2 - Dashboard, grades, overdue detection, inline controls
+const V2_KEY = 'studyPlannerData_v2'
+const V1_KEY = 'studyPlannerData_v1'
 
 let state = { courses: [], assignments: [] }
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6) }
 
 function load() {
-  const raw = localStorage.getItem(STORAGE_KEY)
-  if (raw) state = JSON.parse(raw)
+  // Prefer v2 storage; migrate from v1 if present
+  const rawV2 = localStorage.getItem(V2_KEY)
+  if (rawV2) {
+    state = JSON.parse(rawV2)
+  } else {
+    const rawV1 = localStorage.getItem(V1_KEY)
+    if (rawV1) {
+      // migrate: add grade=null to assignments
+      const s = JSON.parse(rawV1)
+      s.assignments = s.assignments.map(a => Object.assign({ grade: null, createdAt: a.createdAt || new Date().toISOString() }, a))
+      state = s
+      save()
+    }
+  }
 }
 
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+function save() { localStorage.setItem(V2_KEY, JSON.stringify(state)) }
+
+// Utilities
+function parseDateOnly(s) { if (!s) return null; const d = new Date(s + 'T00:00:00'); return d }
+function isOverdue(a) {
+  if (a.status === 'complete') return false
+  if (!a.dueDate) return false
+  const due = parseDateOnly(a.dueDate)
+  const today = new Date(); today.setHours(0,0,0,0)
+  return due < today
 }
 
-// Courses
+function stats() {
+  const total = state.assignments.length
+  const completed = state.assignments.filter(a => a.status === 'complete').length
+  const remaining = total - completed
+  const overdue = state.assignments.filter(a => isOverdue(a)).length
+  const graded = state.assignments.filter(a => a.grade !== null && !Number.isNaN(Number(a.grade)))
+  const average = graded.length ? (graded.reduce((s,a)=>s+Number(a.grade),0)/graded.length) : null
+  return { total, completed, remaining, overdue, average }
+}
+
+// DOM refs
 const courseForm = document.getElementById('course-form')
 const courseNameInput = document.getElementById('course-name')
 const coursesList = document.getElementById('courses-list')
 
+const assignmentForm = document.getElementById('assignment-form')
+const assignmentTitle = document.getElementById('assignment-title')
+const assignmentCourse = document.getElementById('assignment-course')
+const assignmentDue = document.getElementById('assignment-due')
+const assignmentPriority = document.getElementById('assignment-priority')
+const assignmentStatus = document.getElementById('assignment-status')
+const assignmentGrade = document.getElementById('assignment-grade')
+const assignmentsList = document.getElementById('assignments-list')
+
+const statTotal = document.getElementById('stat-total')
+const statCompleted = document.getElementById('stat-completed')
+const statRemaining = document.getElementById('stat-remaining')
+const statOverdue = document.getElementById('stat-overdue')
+const statAverage = document.getElementById('stat-average')
+
+const filterStatus = document.getElementById('filter-status')
+const sortBy = document.getElementById('sort-by')
+
+// Course handlers
 courseForm.addEventListener('submit', e => {
   e.preventDefault()
   const idField = document.getElementById('course-id')
@@ -34,7 +84,7 @@ courseForm.addEventListener('submit', e => {
     state.courses.push({ id: uid(), name })
   }
   courseNameInput.value = ''
-  save(); renderCourses(); renderCourseOptions();
+  save(); renderCourses(); renderCourseOptions(); renderAssignments(); updateDashboard()
 })
 
 function renderCourses() {
@@ -63,21 +113,12 @@ coursesList.addEventListener('click', e => {
   if (e.target.classList.contains('del')) {
     const id = e.target.dataset.id
     state.courses = state.courses.filter(x => x.id !== id)
-    // also remove course from assignments
     state.assignments = state.assignments.filter(a => a.courseId !== id)
-    save(); renderCourses(); renderAssignments(); renderCourseOptions()
+    save(); renderCourses(); renderAssignments(); renderCourseOptions(); updateDashboard()
   }
 })
 
-// Assignments
-const assignmentForm = document.getElementById('assignment-form')
-const assignmentTitle = document.getElementById('assignment-title')
-const assignmentCourse = document.getElementById('assignment-course')
-const assignmentDue = document.getElementById('assignment-due')
-const assignmentPriority = document.getElementById('assignment-priority')
-const assignmentStatus = document.getElementById('assignment-status')
-const assignmentsList = document.getElementById('assignments-list')
-
+// Assignment handlers
 assignmentForm.addEventListener('submit', e => {
   e.preventDefault()
   const idField = document.getElementById('assignment-id')
@@ -89,6 +130,7 @@ assignmentForm.addEventListener('submit', e => {
     dueDate: assignmentDue.value || null,
     priority: assignmentPriority.value,
     status: assignmentStatus.value,
+    grade: assignmentGrade.value ? Number(assignmentGrade.value) : null,
   }
   if (idField.value) {
     const id = idField.value
@@ -101,7 +143,8 @@ assignmentForm.addEventListener('submit', e => {
   }
   assignmentTitle.value = ''
   assignmentDue.value = ''
-  save(); renderAssignments();
+  assignmentGrade.value = ''
+  save(); renderAssignments(); updateDashboard()
 })
 
 function renderCourseOptions() {
@@ -114,42 +157,79 @@ function renderCourseOptions() {
   })
 }
 
+function sortAssignments(list) {
+  const s = sortBy.value
+  if (s === 'due') {
+    list.sort((a,b)=>{
+      if (!a.dueDate) return 1
+      if (!b.dueDate) return -1
+      return new Date(a.dueDate) - new Date(b.dueDate)
+    })
+  } else if (s === 'priority') {
+    const score = p => p==='high'?0:p==='medium'?1:2
+    list.sort((a,b)=>score(a.priority)-score(b.priority))
+  } else if (s === 'created') {
+    list.sort((a,b)=> new Date(a.createdAt) - new Date(b.createdAt))
+  }
+}
+
 function renderAssignments() {
   assignmentsList.innerHTML = ''
-  state.assignments.forEach(a => {
+  let list = state.assignments.slice()
+  // filter
+  const f = filterStatus.value
+  if (f !== 'all') list = list.filter(a => a.status === f)
+  // sort
+  sortAssignments(list)
+
+  list.forEach(a => {
     const li = document.createElement('li'); li.className='item'
-    const left = document.createElement('div')
+    if (isOverdue(a)) li.classList.add('overdue')
+
+    const left = document.createElement('div'); left.className='left'
+    const titleClass = a.status==='complete' ? 'completeTitle' : ''
     const course = state.courses.find(c => c.id === a.courseId)
-    left.innerHTML = `<strong>${escapeHtml(a.title)}</strong><div class="meta">${course?escapeHtml(course.name):'<small>no course</small>'} • Due: ${a.dueDate||'—'} • Priority: ${a.priority} • Status: ${a.status}</div>`
-    const actions = document.createElement('div')
-    actions.innerHTML = `<button data-id="${a.id}" class="edit">Edit</button> <button data-id="${a.id}" class="del">Delete</button>`
-    li.appendChild(left); li.appendChild(actions)
+    left.innerHTML = `<div><strong class="${titleClass}">${escapeHtml(a.title)}</strong></div>
+      <div class="meta">${course?escapeHtml(course.name):'<small>no course</small>'} • Due: ${a.dueDate||'—'} • Priority: ${a.priority} • Status: ${a.status}</div>`
+
+    const right = document.createElement('div'); right.className='inline-actions'
+    // complete toggle
+    const toggle = document.createElement('button'); toggle.textContent = a.status==='complete' ? 'Mark Unfinished' : 'Mark Complete'
+    toggle.addEventListener('click', () => { a.status = a.status==='complete' ? 'unfinished' : 'complete'; save(); renderAssignments(); updateDashboard() })
+
+    // edit and delete
+    const edit = document.createElement('button'); edit.textContent = 'Edit'
+    edit.addEventListener('click', () => { document.getElementById('assignment-id').value = a.id; assignmentTitle.value = a.title; assignmentCourse.value = a.courseId || ''; assignmentDue.value = a.dueDate || ''; assignmentPriority.value = a.priority || 'low'; assignmentStatus.value = a.status || 'unfinished'; assignmentGrade.value = a.grade!==null? a.grade : '' ; assignmentForm.querySelector('button').textContent = 'Save Assignment' })
+
+    const del = document.createElement('button'); del.textContent = 'Delete'
+    del.addEventListener('click', () => { state.assignments = state.assignments.filter(x=>x.id!==a.id); save(); renderAssignments(); updateDashboard() })
+
+    // inline grade input
+    const gradeInput = document.createElement('input'); gradeInput.type='number'; gradeInput.step='0.1'; gradeInput.className='inline-grade'; gradeInput.placeholder='Grade'; gradeInput.value = a.grade!==null? a.grade : ''
+    gradeInput.addEventListener('change', () => { a.grade = gradeInput.value!=='' ? Number(gradeInput.value) : null; save(); updateDashboard() })
+
+    right.appendChild(toggle); right.appendChild(gradeInput); right.appendChild(edit); right.appendChild(del)
+
+    li.appendChild(left); li.appendChild(right)
     assignmentsList.appendChild(li)
   })
 }
 
-assignmentsList.addEventListener('click', e => {
-  if (e.target.classList.contains('edit')) {
-    const id = e.target.dataset.id
-    const a = state.assignments.find(x => x.id === id)
-    if (a) {
-      document.getElementById('assignment-id').value = a.id
-      assignmentTitle.value = a.title
-      assignmentCourse.value = a.courseId || ''
-      assignmentDue.value = a.dueDate || ''
-      assignmentPriority.value = a.priority || 'low'
-      assignmentStatus.value = a.status || 'unfinished'
-      assignmentForm.querySelector('button').textContent = 'Save Assignment'
-    }
-  }
-  if (e.target.classList.contains('del')) {
-    const id = e.target.dataset.id
-    state.assignments = state.assignments.filter(x => x.id !== id)
-    save(); renderAssignments()
-  }
-})
-
+// small helpers
 function escapeHtml(s){ return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 
+function updateDashboard(){
+  const s = stats()
+  statTotal.textContent = s.total
+  statCompleted.textContent = s.completed
+  statRemaining.textContent = s.remaining
+  statOverdue.textContent = s.overdue
+  statAverage.textContent = s.average!==null ? Number(s.average).toFixed(2) : '—'
+}
+
+// wire filter/sort
+filterStatus.addEventListener('change', ()=> { renderAssignments() })
+sortBy.addEventListener('change', ()=> { renderAssignments() })
+
 // init
-load(); renderCourses(); renderCourseOptions(); renderAssignments();
+load(); renderCourses(); renderCourseOptions(); renderAssignments(); updateDashboard()
