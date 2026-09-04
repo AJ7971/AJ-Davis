@@ -1,0 +1,14 @@
+/* Basic styles for planner */
+:root{--bg:#f7f9fb;--card:#fff;--accent:#2b6cb0}
+body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial; background:var(--bg); margin:0;padding:20px;color:#222}
+header{margin-bottom:20px}
+main{display:grid;grid-template-columns:1fr 2fr;gap:20px}
+section{background:var(--card);padding:12px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+input,select,button{padding:8px;border:1px solid #ddd;border-radius:6px}
+button{background:var(--accent);color:#fff;border:none;cursor:pointer}
+ul{list-style:none;padding:0;margin:8px 0}
+.item{display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #f0f0f0}
+.meta{font-size:0.9em;color:#555}
+small{color:#666}
+@media(max-width:800px){main{grid-template-columns:1fr} }

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Student Study Planner & Grade Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Student Study Planner & Grade Dashboard</h1>
+  </header>
+  <main>
+    <section id="courses-section">
+      <h2>Courses</h2>
+      <form id="course-form">
+        <input type="hidden" id="course-id" />
+        <input id="course-name" placeholder="Course name" required />
+        <button type="submit">Add Course</button>
+      </form>
+      <ul id="courses-list"></ul>
+    </section>
+
+    <section id="assignments-section">
+      <h2>Assignments</h2>
+      <form id="assignment-form">
+        <input type="hidden" id="assignment-id" />
+        <input id="assignment-title" placeholder="Title" required />
+        <select id="assignment-course"></select>
+        <input id="assignment-due" type="date" />
+        <select id="assignment-priority">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+        <select id="assignment-status">
+          <option value="unfinished">Unfinished</option>
+          <option value="complete">Complete</option>
+        </select>
+        <button type="submit">Add Assignment</button>
+      </form>
+      <ul id="assignments-list"></ul>
+    </section>
+
+    <section id="notes">
+      <h2>Notes</h2>
+      <p>Version 1: Basic add/edit/delete for courses and assignments. Data persists using localStorage.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
